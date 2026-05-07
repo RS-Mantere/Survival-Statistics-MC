@@ -22,13 +22,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14'
+          gradle-version: '9.2.0'
 
       - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version 8.14
+        run: gradle wrapper --gradle-version 9.2.0
 
       - name: Build with Gradle
-        run: ./gradlew build --no-daemon --stacktrace
+        run: ./gradlew build --no-daemon --stacktrace --warning-mode=all
 
       - name: Upload built jar
         uses: actions/upload-artifact@v4
