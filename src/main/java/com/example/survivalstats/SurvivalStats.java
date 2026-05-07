@@ -96,7 +96,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
                     .then(Commands.literal("none").executes(ctx -> clearBelowNameSlot(ctx)))
                     .then(Commands.argument("objective", StringArgumentType.word())
                         .suggests(OBJECTIVE_SUGGESTIONS)
-                        .executes(ctx -> setBelowNameObjective(ctx, StringArgumentType.getString(ctx, "objective")))))))
+                        .executes(ctx -> setBelowNameObjective(ctx, StringArgumentType.getString(ctx, "objective"))))))
             .then(Commands.literal("rotation")
                 .then(Commands.literal("list").executes(this::cmdRotationList))
                 .then(Commands.literal("clear").executes(this::cmdRotationClear))
