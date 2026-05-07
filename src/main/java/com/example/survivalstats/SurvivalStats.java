@@ -378,6 +378,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
 
     private void ensureObjectives(MinecraftServer server) {
         Scoreboard scoreboard = server.getScoreboard();
+        migrateLegacyDerivedObjectives(server, scoreboard);
         for (StatDef def : StatDef.ALL) {
             if (scoreboard.getObjective(def.id) == null) {
                 ObjectiveCriteria criteria = ObjectiveCriteria.byName(def.criterion).orElse(null);
@@ -396,6 +397,79 @@ public class SurvivalStats implements DedicatedServerModInitializer {
                 LOGGER.info("Created objective {}", def.id);
             }
         }
+    }
+
+    private void migrateLegacyDerivedObjectives(MinecraftServer server, Scoreboard scoreboard) {
+        migrateLegacyDerivedObjective(
+            server,
+            scoreboard,
+            DISTANCE_OBJECTIVE,
+            DISTANCE_RAW_OBJECTIVE,
+            "minecraft.custom:minecraft.walk_one_cm",
+            "Walked (km)"
+        );
+        migrateLegacyDerivedObjective(
+            server,
+            scoreboard,
+            PLAYTIME_OBJECTIVE,
+            PLAYTIME_RAW_OBJECTIVE,
+            "minecraft.custom:minecraft.play_time",
+            "Playtime (HHmmss)"
+        );
+    }
+
+    private void migrateLegacyDerivedObjective(
+        MinecraftServer server,
+        Scoreboard scoreboard,
+        String legacyObjectiveName,
+        String rawObjectiveName,
+        String rawCriterionName,
+        String derivedDisplayName
+    ) {
+        Objective legacy = scoreboard.getObjective(legacyObjectiveName);
+        if (legacy == null || legacy.getCriteria() == ObjectiveCriteria.DUMMY) {
+            return;
+        }
+
+        ObjectiveCriteria rawCriteria = ObjectiveCriteria.byName(rawCriterionName).orElse(null);
+        if (rawCriteria == null) {
+            LOGGER.error("Cannot migrate '{}': unknown raw criterion '{}'", legacyObjectiveName, rawCriterionName);
+            return;
+        }
+
+        Objective raw = scoreboard.getObjective(rawObjectiveName);
+        if (raw == null) {
+            raw = scoreboard.addObjective(
+                rawObjectiveName,
+                rawCriteria,
+                Component.literal(rawObjectiveName),
+                rawCriteria.getDefaultRenderType(),
+                true,
+                null
+            );
+        }
+
+        // Best-effort migration of any currently online player values before recreating the objective.
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            int currentValue = scoreboard.getOrCreatePlayerScore(player, legacy).get();
+            scoreboard.getOrCreatePlayerScore(player, raw).set(currentValue);
+        }
+
+        scoreboard.removeObjective(legacy);
+        scoreboard.addObjective(
+            legacyObjectiveName,
+            ObjectiveCriteria.DUMMY,
+            Component.literal(derivedDisplayName),
+            ObjectiveCriteria.DUMMY.getDefaultRenderType(),
+            true,
+            null
+        );
+
+        LOGGER.info(
+            "Migrated legacy objective '{}' to derived dummy objective backed by '{}'.",
+            legacyObjectiveName,
+            rawObjectiveName
+        );
     }
 
     private void applyStaticDisplays(MinecraftServer server) {
