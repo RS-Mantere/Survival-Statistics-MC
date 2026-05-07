@@ -11,13 +11,16 @@ import java.nio.file.Path;
 public class ConfigManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    public static Path getConfigPath() {
+        return FabricLoader.getInstance().getConfigDir().resolve("survivalstats").resolve("config.json");
+    }
+
     public static Config loadOrCreate() {
-        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("survivalstats");
-        Path configFile = configDir.resolve("config.json");
+        Path configFile = getConfigPath();
 
         try {
             if (!Files.exists(configFile)) {
-                Files.createDirectories(configDir);
+                Files.createDirectories(configFile.getParent());
                 Config defaults = new Config();
                 Files.writeString(configFile, GSON.toJson(defaults));
                 SurvivalStats.LOGGER.info("Wrote default config to {}", configFile);
@@ -30,6 +33,16 @@ public class ConfigManager {
         } catch (IOException e) {
             SurvivalStats.LOGGER.error("Failed to load config, using defaults.", e);
             return new Config();
+        }
+    }
+
+    public static void save(Config config) {
+        Path path = getConfigPath();
+        try {
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, GSON.toJson(config));
+        } catch (IOException e) {
+            SurvivalStats.LOGGER.error("Failed to save config", e);
         }
     }
 }
