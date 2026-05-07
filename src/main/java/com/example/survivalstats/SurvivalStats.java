@@ -15,6 +15,8 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.scores.ScoreAccess;
 import net.minecraft.world.scores.DisplaySlot;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.Scoreboard;
@@ -30,6 +32,11 @@ import java.util.StringTokenizer;
 public class SurvivalStats implements DedicatedServerModInitializer {
     public static final String MOD_ID = "survivalstats";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    private static final int DERIVED_SYNC_INTERVAL_TICKS = 20;
+    private static final String DISTANCE_OBJECTIVE = "Distance";
+    private static final String DISTANCE_RAW_OBJECTIVE = "DistanceRaw";
+    private static final String PLAYTIME_OBJECTIVE = "PlayTime";
+    private static final String PLAYTIME_RAW_OBJECTIVE = "PlayTimeRaw";
 
     private static final SuggestionProvider<CommandSourceStack> OBJECTIVE_SUGGESTIONS = (context, builder) -> {
         MinecraftServer server = context.getSource().getServer();
@@ -47,6 +54,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
     private static Config config;
     private static int tickCounter = 0;
     private static int rotationIndex = 0;
+    private static int derivedSyncCounter = 0;
     private static MinecraftServer serverRef;
 
     @Override
@@ -54,6 +62,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
         LOGGER.info("Survival Stats initializing");
 
         config = ConfigManager.loadOrCreate();
+        normalizeConfig();
 
         ServerLifecycleEvents.SERVER_STARTED.register(this::onServerStarted);
         ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
@@ -67,10 +76,9 @@ public class SurvivalStats implements DedicatedServerModInitializer {
             .requires(source -> Commands.LEVEL_GAMEMASTERS.check(source.permissions()))
             .then(Commands.literal("reload").executes(ctx -> {
                 config = ConfigManager.loadOrCreate();
+                normalizeConfig();
                 if (serverRef != null) {
-                    ensureObjectives(serverRef);
-                    applyStaticDisplays(serverRef);
-                    applyCurrentSidebar(serverRef);
+                    applyAll(serverRef);
                 }
                 ctx.getSource().sendSuccess(() -> Component.literal("Survival Stats config reloaded."), true);
                 return Command.SINGLE_SUCCESS;
@@ -82,6 +90,9 @@ public class SurvivalStats implements DedicatedServerModInitializer {
                 return Command.SINGLE_SUCCESS;
             }))
             .then(Commands.literal("show").executes(this::cmdShow))
+            .then(Commands.literal("units")
+                .then(Commands.literal("metric").executes(ctx -> setDistanceUnit(ctx, "metric")))
+                .then(Commands.literal("imperial").executes(ctx -> setDistanceUnit(ctx, "imperial"))))
             .then(Commands.literal("reset").executes(this::cmdReset))
             .then(Commands.literal("interval")
                 .then(Commands.argument("ticks", IntegerArgumentType.integer(1))
@@ -181,6 +192,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
         StringBuilder sb = new StringBuilder();
         sb.append("Survival Stats config:").append(nl);
         sb.append("rotationIntervalTicks: ").append(config.rotationIntervalTicks).append(nl);
+        sb.append("distanceUnit: ").append(config.distanceUnit).append(nl);
         sb.append("tabListObjective: ").append(blankAsNone(config.tabListObjective)).append(nl);
         sb.append("belowNameObjective: ").append(blankAsNone(config.belowNameObjective)).append(nl);
         sb.append("rotation:").append(nl);
@@ -198,6 +210,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
 
     private int cmdReset(CommandContext<CommandSourceStack> ctx) {
         config = new Config();
+        normalizeConfig();
         tickCounter = 0;
         rotationIndex = 0;
         ConfigManager.save(config);
@@ -217,6 +230,18 @@ public class SurvivalStats implements DedicatedServerModInitializer {
             applyAll(serverRef);
         }
         ctx.getSource().sendSuccess(() -> Component.literal("Rotation interval set to " + ticks + " ticks."), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private int setDistanceUnit(CommandContext<CommandSourceStack> ctx, String unit) {
+        config.distanceUnit = unit;
+        ConfigManager.save(config);
+        if (serverRef != null) {
+            syncDerivedObjectives(serverRef);
+            applyAll(serverRef);
+        }
+        String label = unit.equals("imperial") ? "imperial (miles)" : "metric (kilometers)";
+        ctx.getSource().sendSuccess(() -> Component.literal("Distance unit set to " + label + "."), true);
         return Command.SINGLE_SUCCESS;
     }
 
@@ -293,6 +318,19 @@ public class SurvivalStats implements DedicatedServerModInitializer {
         return (s == null || s.isBlank()) ? "(none)" : s;
     }
 
+    private static void normalizeConfig() {
+        if (config.distanceUnit == null || config.distanceUnit.isBlank()) {
+            config.distanceUnit = "metric";
+            return;
+        }
+        String normalized = config.distanceUnit.trim().toLowerCase();
+        if (!normalized.equals("metric") && !normalized.equals("imperial")) {
+            config.distanceUnit = "metric";
+        } else {
+            config.distanceUnit = normalized;
+        }
+    }
+
     private static void normalizeRotationIndex() {
         if (config.rotation.isEmpty()) {
             rotationIndex = 0;
@@ -304,6 +342,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
     private void onServerStarted(MinecraftServer server) {
         serverRef = server;
         ensureObjectives(server);
+        syncDerivedObjectives(server);
         applyStaticDisplays(server);
         applyCurrentSidebar(server);
         LOGGER.info("Survival Stats ready. Rotating {} stats every {} ticks.",
@@ -311,6 +350,12 @@ public class SurvivalStats implements DedicatedServerModInitializer {
     }
 
     private void onServerTick(MinecraftServer server) {
+        derivedSyncCounter++;
+        if (derivedSyncCounter >= DERIVED_SYNC_INTERVAL_TICKS) {
+            derivedSyncCounter = 0;
+            syncDerivedObjectives(server);
+        }
+
         if (config.rotation.isEmpty()) return;
         tickCounter++;
         if (tickCounter >= config.rotationIntervalTicks) {
@@ -385,7 +430,38 @@ public class SurvivalStats implements DedicatedServerModInitializer {
 
     private void applyAll(MinecraftServer server) {
         ensureObjectives(server);
+        syncDerivedObjectives(server);
         applyStaticDisplays(server);
         applyCurrentSidebar(server);
+    }
+
+    private void syncDerivedObjectives(MinecraftServer server) {
+        Scoreboard scoreboard = server.getScoreboard();
+        Objective distanceRaw = scoreboard.getObjective(DISTANCE_RAW_OBJECTIVE);
+        Objective playTimeRaw = scoreboard.getObjective(PLAYTIME_RAW_OBJECTIVE);
+        Objective distanceOut = scoreboard.getObjective(DISTANCE_OBJECTIVE);
+        Objective playTimeOut = scoreboard.getObjective(PLAYTIME_OBJECTIVE);
+        if (distanceRaw == null || playTimeRaw == null || distanceOut == null || playTimeOut == null) {
+            return;
+        }
+
+        boolean imperial = "imperial".equals(config.distanceUnit);
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            ScoreAccess rawDistanceScore = scoreboard.getOrCreatePlayerScore(player, distanceRaw);
+            int rawCm = rawDistanceScore.get();
+            int convertedDistance = imperial
+                ? (int) Math.round(rawCm / 1609.344D)
+                : (int) Math.round(rawCm / 100000.0D);
+            scoreboard.getOrCreatePlayerScore(player, distanceOut).set(convertedDistance);
+
+            ScoreAccess rawPlayTimeScore = scoreboard.getOrCreatePlayerScore(player, playTimeRaw);
+            int ticks = rawPlayTimeScore.get();
+            int totalSeconds = ticks / 20;
+            int hours = totalSeconds / 3600;
+            int minutes = (totalSeconds % 3600) / 60;
+            int seconds = totalSeconds % 60;
+            int encoded = (hours * 10000) + (minutes * 100) + seconds;
+            scoreboard.getOrCreatePlayerScore(player, playTimeOut).set(encoded);
+        }
     }
 }

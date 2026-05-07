@@ -20,6 +20,8 @@ All `/stats` commands require **op level 2** (game masters / `Commands.LEVEL_GAM
 | `/stats show` | Print interval, tab/below-name objectives, and full rotation list. |
 | `/stats reload` | Reload config from disk and reapply displays. |
 | `/stats rotate` | Manually advance the sidebar to the next objective in the rotation. |
+| `/stats units metric` | Use kilometers for `Distance` conversion. |
+| `/stats units imperial` | Use miles for `Distance` conversion. |
 | `/stats reset` | Reset config to defaults, save, and reapply. |
 | `/stats interval <ticks>` | Set rotation interval (minimum 1 tick). Resets the tick counter; rotation index is unchanged. |
 | `/stats slot tab <objective>` | Set the tab list scoreboard to this objective. |
@@ -34,6 +36,10 @@ All `/stats` commands require **op level 2** (game masters / `Commands.LEVEL_GAM
 | `/stats rotation set <objectives...>` | Replace the rotation with space-separated objective names (greedy; rest of the line). |
 
 Mutating commands write `config/survivalstats/config.json` immediately and reapply tab/below-name/sidebar where relevant. Objective arguments accept any scoreboard objective name; tab completion includes the mod’s default stats plus objectives already on the server.
+
+`Distance` and `PlayTime` are derived display objectives:
+- `Distance` is shown as whole kilometers (`metric`) or whole miles (`imperial`).
+- `PlayTime` is encoded as `HHmmss` numeric format for sidebar compatibility (example: `021530` = 02:15:30).
 
 ## Building
 
@@ -68,6 +74,7 @@ After first launch, edit `config/survivalstats/config.json` or use `/stats` in-g
 ```json
 {
   "rotationIntervalTicks": 100,
+  "distanceUnit": "metric",
   "tabListObjective": "Deaths",
   "belowNameObjective": "MobKills",
   "rotation": [
