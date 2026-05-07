@@ -37,7 +37,7 @@ public class SurvivalStats implements DedicatedServerModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(Commands.literal("stats")
-                .requires(source -> source.hasPermission(2))
+                .requires(source -> Commands.LEVEL_GAMEMASTERS.check(source.permissions()))
                 .then(Commands.literal("reload").executes(ctx -> {
                     config = ConfigManager.loadOrCreate();
                     if (serverRef != null) {
