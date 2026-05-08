@@ -3,13 +3,12 @@
     "id": "survivalstats",
     "version": "${version}",
     "name": "Survival Stats",
-    "description": "Server-side scoreboard stats with rotating sidebar.",
+    "description": "Server-side stats shown in custom tab-list UI.",
     "authors": ["Roope"],
     "license": "MIT",
-    "icon": "assets/survivalstats/icon.png",
     "environment": "server",
     "entrypoints": {
-        "server": ["com.example.survivalstats.SurvivalStats"]
+        "server": ["dev.roope.survivalstats.SurvivalStats"]
     },
     "depends": {
         "fabricloader": ">=${loader_version}",

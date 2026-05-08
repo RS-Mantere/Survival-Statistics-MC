@@ -1,45 +1,58 @@
 # Survival Stats
 
-A server-side Fabric mod for Minecraft 1.21.11. Tracks scoreboard stats and rotates a sidebar display through them. Players need no client mod.
+Server-side Fabric mod for Minecraft 1.21.11 that shows player statistics in the tab-list UI (`header/footer`) instead of using scoreboard display slots.
+
+No client mod required.
 
 ## Features
 
-- Tracks Deaths, Player Kills, Mob Kills, Jumps, Distance Walked, Playtime, Damage Dealt, Damage Taken, Sleeps, Fish Caught.
-- Auto-creates all scoreboard objectives on first server start.
-- Rotates the sidebar through configured stats every 5 seconds (configurable).
-- Shows Deaths in the tab list and Mob Kills below player nameplates.
-- Config file at `config/survivalstats/config.json`.
-- In-game `/stats` commands to view and edit the config (saved automatically).
+- No scoreboard display dependencies (no sidebar/list/below-name rendering).
+- Uses vanilla per-player stats storage (`world/stats/<uuid>.json`) as the data source.
+- Renders a multiline stats panel in tab-list footer for each online player.
+- Configurable refresh interval and distance unit.
+- Optional global on/off switch for the tab-list overlay.
+- `/stats top <stat> [count]` supports offline players by reading stats JSON files.
+- Crash-safe config writes and corrupt-config backup behavior.
 
 ## Commands
 
-All `/stats` commands require **op level 2** (game masters / `Commands.LEVEL_GAMEMASTERS`).
+All `/stats` commands require op level 2.
 
 | Command | Description |
-|--------|---------------|
-| `/stats show` | Print interval, tab/below-name objectives, and full rotation list. |
-| `/stats reload` | Reload config from disk and reapply displays. |
-| `/stats rotate` | Manually advance the sidebar to the next objective in the rotation. |
-| `/stats units metric` | Use kilometers for `Distance` conversion. |
-| `/stats units imperial` | Use miles for `Distance` conversion. |
-| `/stats reset` | Reset config to defaults, save, and reapply. |
-| `/stats interval <ticks>` | Set rotation interval (minimum 1 tick). Resets the tick counter; rotation index is unchanged. |
-| `/stats slot tab <objective>` | Set the tab list scoreboard to this objective. |
-| `/stats slot tab none` | Clear the tab list display slot. |
-| `/stats slot belowname <objective>` | Set the below-name scoreboard to this objective. |
-| `/stats slot belowname none` | Clear the below-name display slot. |
-| `/stats rotation list` | Print the rotation list with indices (same info as under `rotation` in `/stats show`). |
-| `/stats rotation add <objective>` | Append an objective to the rotation. |
-| `/stats rotation remove <objective>` | Remove the first matching objective from the rotation. |
-| `/stats rotation insert <index> <objective>` | Insert at index (clamped to `0` … `size`). |
-| `/stats rotation clear` | Clear the rotation (sidebar slot cleared; ticking stops until you add entries again). |
-| `/stats rotation set <objectives...>` | Replace the rotation with space-separated objective names (greedy; rest of the line). |
+|--------|-------------|
+| `/stats show` | Show config + your current stat values in chat. |
+| `/stats display on` | Enable tab-list stats rendering globally. |
+| `/stats display off` | Disable rendering and clear tab-list header/footer. |
+| `/stats interval <ticks>` | Set refresh interval (minimum 1). |
+| `/stats units metric` | Show distance as meters. |
+| `/stats units imperial` | Show distance as feet. |
+| `/stats refresh` | Force a fresh render (player-specific if run by player). |
+| `/stats reload` | Reload config from disk and re-render. |
+| `/stats reset` | Reset config to defaults and re-render. |
+| `/stats top <stat> [count]` | Show leaderboard from online + offline stats files. |
 
-Mutating commands write `config/survivalstats/config.json` immediately and reapply tab/below-name/sidebar where relevant. Objective arguments accept any scoreboard objective name; tab completion includes the mod’s default stats plus objectives already on the server.
+Valid `stat` values for `/stats top`:
+`Deaths`, `PlayerKills`, `MobKills`, `Jumps`, `Distance`, `PlayTime`, `DmgDealt`, `DmgTaken`, `Sleeps`, `Fish`.
 
-`Distance` and `PlayTime` are derived display objectives:
-- `Distance` is shown as whole kilometers (`metric`) or whole miles (`imperial`).
-- `PlayTime` is encoded as `HHmmss` numeric format for sidebar compatibility (example: `021530` = 02:15:30).
+## Config
+
+File: `config/survivalstats/config.json`
+
+```json
+{
+  "refreshIntervalTicks": 20,
+  "displayEnabled": true,
+  "distanceUnit": "metric"
+}
+```
+
+Legacy config keys from older scoreboard-based versions are safely ignored/migrated.
+
+## Migration note from scoreboard-based versions
+
+On server start, the mod clears scoreboard display slots (`SIDEBAR`, `LIST`, `BELOW_NAME`) once so legacy UI state is removed.
+
+The mod does **not** delete old scoreboard objectives. If you want to purge them, do it manually with vanilla `/scoreboard objectives remove ...`.
 
 ## Building
 
@@ -48,7 +61,7 @@ Mutating commands write `config/survivalstats/config.json` immediately and reapp
 1. Push this repo to GitHub.
 2. The workflow at `.github/workflows/build.yml` runs automatically.
 3. Download the built jar from the workflow run's Artifacts section.
-4. To create a tagged release, push a tag like `v1.0.0`. The jar attaches to the GitHub Release.
+4. To create a tagged release, push a tag like `v1.1.0`. The jar attaches to the GitHub Release.
 
 ### Option B: Build locally
 
@@ -59,41 +72,19 @@ gradle wrapper --gradle-version 9.2.0
 ./gradlew build
 ```
 
-The jar appears in `build/libs/survivalstats-1.0.0.jar`.
+The jar appears in `build/libs/survivalstats-1.1.0.jar`.
+
+### Running tests
+
+```
+./gradlew test
+```
 
 ## Installing
 
-1. Drop `survivalstats-1.0.0.jar` and `fabric-api-0.141.3+1.21.11.jar` into the server's `mods/` folder.
+1. Drop `survivalstats-1.1.0.jar` and `fabric-api-0.141.3+1.21.11.jar` into the server's `mods/` folder.
 2. Start the server.
-3. Stats start tracking immediately. The sidebar begins rotating within 5 seconds.
-
-## Configuration
-
-After first launch, edit `config/survivalstats/config.json` or use `/stats` in-game.
-
-```json
-{
-  "rotationIntervalTicks": 100,
-  "distanceUnit": "metric",
-  "tabListObjective": "Deaths",
-  "belowNameObjective": "MobKills",
-  "rotation": [
-    "Deaths",
-    "PlayerKills",
-    "MobKills",
-    "Distance",
-    "PlayTime"
-  ]
-}
-```
-
-20 ticks equals 1 second. Default 100 ticks equals 5 seconds.
-
-Run `/stats reload` after hand-editing the file.
-
-## Available objective IDs
-
-`Deaths`, `PlayerKills`, `MobKills`, `Jumps`, `Distance`, `PlayTime`, `DmgDealt`, `DmgTaken`, `Sleeps`, `Fish`.
+3. Stats start tracking immediately. Press and hold tab to see the custom stats panel.
 
 ## License
 
