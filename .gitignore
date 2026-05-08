@@ -9,6 +9,9 @@ classes/
 *.iml
 *.iws
 
+# Cursor
+.cursor/
+
 # Eclipse
 .settings/
 .classpath
