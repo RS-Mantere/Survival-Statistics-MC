@@ -1,17 +1,20 @@
 package dev.roope.survivalstats;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.mojang.authlib.GameProfile;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class LeaderboardService {
@@ -44,6 +47,8 @@ public final class LeaderboardService {
             return List.of();
         }
 
+        Map<UUID, String> userCacheNames = loadUserCacheNames();
+
         List<PlayerStatValue> rows = new ArrayList<>();
         try (var paths = Files.list(statsDir)) {
             paths.filter(p -> p.getFileName().toString().endsWith(".json")).forEach(path -> {
@@ -56,7 +61,7 @@ public final class LeaderboardService {
                     return;
                 }
                 long value = readStatValue(path, stat.customStatKey());
-                String name = resolveName(uuid);
+                String name = resolveName(uuid, userCacheNames);
                 rows.add(new PlayerStatValue(uuid, name, value));
             });
         } catch (IOException e) {
@@ -84,17 +89,67 @@ public final class LeaderboardService {
         return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
     }
 
-    private String resolveName(UUID uuid) {
-        var player = server.getPlayerList().getPlayer(uuid);
-        if (player != null) {
-            return player.getGameProfile().getName();
+    /**
+     * Reads {@code usercache.json} in the world root (same layout as vanilla dedicated server).
+     * Avoids {@code GameProfile} / {@code ProfileResolver} accessor differences across versions.
+     */
+    private Map<UUID, String> loadUserCacheNames() {
+        Path path = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("usercache.json");
+        if (!Files.exists(path)) {
+            return Map.of();
         }
         try {
-            GameProfile profile = server.getProfileCache().get(uuid).orElse(null);
-            if (profile != null && profile.getName() != null) {
-                return profile.getName();
+            JsonElement root = GSON.fromJson(Files.readString(path), JsonElement.class);
+            if (root == null || !root.isJsonArray()) {
+                return Map.of();
             }
+            JsonArray arr = root.getAsJsonArray();
+            Map<UUID, String> out = new HashMap<>();
+            for (JsonElement el : arr) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                if (!o.has("uuid") || !o.has("name")) continue;
+                String uuidStr = o.get("uuid").getAsString();
+                String name = o.get("name").getAsString();
+                UUID parsed = parseUuidLenient(uuidStr);
+                if (parsed != null && name != null && !name.isBlank()) {
+                    out.put(parsed, name);
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            SurvivalStats.LOGGER.warn("Failed to read usercache.json for leaderboard display names", e);
+            return Map.of();
+        }
+    }
+
+    private static UUID parseUuidLenient(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ignored) {
+        }
+        // Some older files store UUIDs without hyphens.
+        String compact = raw.replace("-", "");
+        if (compact.length() != 32) return null;
+        try {
+            return new UUID(
+                Long.parseUnsignedLong(compact.substring(0, 16), 16),
+                Long.parseUnsignedLong(compact.substring(16, 32), 16)
+            );
         } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String resolveName(UUID uuid, Map<UUID, String> userCacheNames) {
+        ServerPlayer player = server.getPlayerList().getPlayer(uuid);
+        if (player != null) {
+            return player.getName().getString();
+        }
+        String cached = userCacheNames.get(uuid);
+        if (cached != null && !cached.isBlank()) {
+            return cached;
         }
         return uuid.toString();
     }
